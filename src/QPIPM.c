@@ -109,7 +109,8 @@ IPM* create_ipm(Matrix* Q, Matrix* q, Matrix* A, Matrix* b, Matrix* G, Matrix* h
     ipm->tol.constraint = 1e-6;
     ipm->tol.gap = 1e-6;
     ipm->tol.cost= 1e-4;
-    ipm->tol.iter_ref = 1e-6;
+    // ipm->tol.iter_ref = 1e-6;
+    ipm->tol.iter_ref = 1e-4;
 
     ipm->delta = create_delta(nx,ns,nz,ny);
     ipm->solution = create_solution(nx,ns,nz,ny);
@@ -392,13 +393,15 @@ void iterative_refinement(IPM* ipm, Matrix* sol, Matrix* rhs, LUP* lu){
     Matrix* check = multiply_matrices(ipm->KKT,sol);
     subtract_matrices_r(check,rhs);
     multiply_with_scalar_r(check,-1.0);
-    while(f_norm(check) > ipm->tol.iter_ref){
+    while(l2_vec_norm(check) > ipm->tol.iter_ref){
         solve_ls_from_lup_inplace(lu,check,dl);
         add_matrices_r(sol,dl);
         multiply_matrices_inplace(ipm->KKT,sol,check);
         subtract_matrices_r(check,rhs);
         multiply_with_scalar_r(check,-1.0);
     }
+    free_matrix(check);
+    free_matrix(dl);
 }
 
 void index_sol_a(IPM* ipm){
@@ -494,15 +497,101 @@ void index_sol_c(IPM* ipm){
     memcpy(ipm->delta->sol_c->y->data,&ipm->p_c->data[nx+ns+nz],sizeof(f64)*ny);
 }
 
-SOLUTION* solve_ipm(IPM* ipm, bool verbose){
+void combine_deltas(IPM* ipm){
+    add_matrices_inplace(ipm->delta->sol_a->x,ipm->delta->sol_c->x,ipm->delta->sol->x);
+    add_matrices_inplace(ipm->delta->sol_a->s,ipm->delta->sol_c->s,ipm->delta->sol->s);
+    add_matrices_inplace(ipm->delta->sol_a->z,ipm->delta->sol_c->z,ipm->delta->sol->z);
+    add_matrices_inplace(ipm->delta->sol_a->y,ipm->delta->sol_c->y,ipm->delta->sol->y);
+}
+
+f64 backtracking_linesearch(IPM* ipm){
+    f64 a = 1;
+    f64 b = 0.5;
+    f64 t = 0.9;
+
+    // aliasing
+    Matrix* x = ipm->solution->x;
+    Matrix* del_x = ipm->delta->sol->x;
+    
+    Matrix* xkp1 = copy_matrix(del_x);
+    multiply_with_scalar_r(xkp1,a);
+    add_matrices_r(xkp1,x);
+
+    Matrix* Qxkp1 = multiply_matrices(ipm->Q,xkp1);
+    f64 temp1 = 0.5 * inner_product(xkp1,Qxkp1);
+    f64 temp2 = inner_product(ipm->q,xkp1);
+    Matrix* Qx = multiply_matrices(ipm->Q,x);
+    f64 temp3 = 0.5 * inner_product(Qx,x);
+    f64 temp4 = inner_product(ipm->q,x);
+    Matrix* temp5 = multiply_matrices(ipm->Q,x);
+    add_matrices_r(temp5,ipm->q);
+    f64 temp6 = a * t * inner_product(temp5,del_x);
+    
+    while(temp1 + temp2 > temp3 + temp4 + temp6){
+        a *= b;
+        copy_matrix_inplace(del_x,xkp1);
+        multiply_with_scalar_r(xkp1,a);
+        add_matrices_r(xkp1,x);
+
+        multiply_matrices_inplace(ipm->Q,xkp1,Qxkp1);
+        temp1 = 0.5 * inner_product(xkp1,Qxkp1);
+        temp2 = inner_product(ipm->q,xkp1);
+        temp6 = a * t * inner_product(temp5,del_x);
+    }
+    free_matrix(xkp1);
+    free_matrix(Qxkp1);
+    free_matrix(Qx);
+    free_matrix(temp5);
+    return a;
+}
+void update_vars(IPM* ipm,f64 a){
+    add_matrices_with_multiplier_r(ipm->solution->x,ipm->delta->sol->x,a);
+    add_matrices_with_multiplier_r(ipm->solution->s,ipm->delta->sol->s,a);
+    add_matrices_with_multiplier_r(ipm->solution->z,ipm->delta->sol->z,a);
+    add_matrices_with_multiplier_r(ipm->solution->y,ipm->delta->sol->y,a);
+}
+        // logging(ipm,iter,a,&Jcurr,&eq_res,&ineq_res,&gap);
+void logging(IPM* ipm, size_t iter, f64 a,
+    f64* pJcurr, f64* peq_res, f64* pineq_res, f64* pgap, bool verbose){
+    // aliasing
+    Matrix* x = ipm->solution->x;
+    Matrix* s = ipm->solution->s;
+    Matrix* z = ipm->solution->z;
+
+    Matrix* Qx = multiply_matrices(ipm->Q,x);
+    f64 temp1 = 0.5 * inner_product(Qx,x);
+    f64 temp2 = inner_product(ipm->q,x);
+    free_matrix(Qx);
+
+    *pJcurr = temp1 + temp2;
+    *peq_res = 0;
+    *pineq_res = 0;
+    *pgap = 0;
+    if (ipm->A != NULL){
+        Matrix* Ax_b = multiply_matrices(ipm->A,x);
+        subtract_matrices_r(Ax_b,ipm->b);
+        *peq_res = l2_vec_norm(Ax_b);
+        free_matrix(Ax_b);
+    }
+    if (ipm->G != NULL){
+        *pgap = inner_product(s,z);
+        Matrix* Gxs_h = multiply_matrices(ipm->G,x);
+        add_matrices_r(Gxs_h,s);
+        subtract_matrices_r(Gxs_h,ipm->h);
+        *pineq_res = l2_vec_norm(Gxs_h);
+        free_matrix(Gxs_h);
+    }
+    if (verbose == true){
+        printf("%3zu    %10.3e    %9.2e    %9.2e    %9.2e    %6.4f\n", iter, *pJcurr, *pgap, *peq_res, *pineq_res, a);
+    }
+}
+
+int solve_ipm(IPM* ipm, bool verbose){
     if (verbose){
         printf("iter      objv          gap         |Ax-b|      |Gx+s-h|     step\n");
         printf("------------------------------------------------------------------\n");
     }
-    u32 iter = 1;
     f64 Jprev = 1e3;
-    f64 temp1 = 0;
-    f64 temp2 = 0;
     f64 Jcurr = 0;
     f64 ineq_res = 0;
     f64 eq_res = 0;
@@ -511,11 +600,12 @@ SOLUTION* solve_ipm(IPM* ipm, bool verbose){
     bool flag_initialize = initialize(ipm);
     if (!flag_initialize){
         fprintf(stderr,"INITIALIZE_FAILED\n");
-        exit(EXIT_FAILURE);
+        return -1;
+        // exit(EXIT_FAILURE);
     }
 
     f64 a = 0;
-    u32 max_iter = 1;
+    u32 max_iter = 10;
     for(size_t iter = 0; iter<max_iter;++iter){
         update_kkt(ipm);
         regularize_kkt(ipm);
@@ -524,13 +614,16 @@ SOLUTION* solve_ipm(IPM* ipm, bool verbose){
         LUP* lu = solve_lup(ipm->KKT_reg);
         if (lu == NULL){
             fprintf(stderr,"LU_DECOMPOSE_KKT_reg_FAILED\n");
-            return NULL;
+            return -1;
         }
 
         // Affine scaling step
         rhs_kkt_a(ipm);
         solve_ls_from_lup_inplace(lu,ipm->rhs_a,ipm->p_a);
+        // print_matrix(ipm->p_a);
         iterative_refinement(ipm,ipm->p_a,ipm->rhs_a,lu);
+        // printf("--\n");
+        // print_matrix(ipm->p_a);
         index_sol_a(ipm);
 
         // Centering and correction step
@@ -544,5 +637,29 @@ SOLUTION* solve_ipm(IPM* ipm, bool verbose){
         // free lu
         free_LUP(lu);
 
+        // combine deltas
+        combine_deltas(ipm);
+
+        // Update solution iterate after linesearch
+        if (ipm->G != NULL){
+            f64 as = linesearch(ipm->solution->s,ipm->delta->sol->s);
+            f64 az = linesearch(ipm->solution->z,ipm->delta->sol->z);
+            a = as < az ? as : az;
+            a *= 0.99;
+            a = a < 1.0 ? a : 1.0;
+        }
+        else{
+            a = backtracking_linesearch(ipm);
+        }
+        update_vars(ipm,a);
+        logging(ipm,iter,a,&Jcurr,&eq_res,&ineq_res,&gap,verbose);
+
+        ipm->converged = (fabs(Jcurr - Jprev) < ipm->tol.cost) && (eq_res < ipm->tol.constraint) && (ineq_res < ipm->tol.constraint) && (gap < ipm->tol.gap);
+        ipm->max_iter_reached = (iter >= max_iter);
+        Jprev = Jcurr;
+        if (ipm->converged){
+            break;
+        }
     }
+    return 1;
 }

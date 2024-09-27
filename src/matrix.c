@@ -124,6 +124,7 @@ void print_matrix(const Matrix* mat){
     int cols = mat->cols;
     for (int i=0; i < rows; i++){
         for (int j=0; j < cols; j++){
+            // printf("%e ", mat->data[i*cols + j]);
             printf("%0.6lf ", mat->data[i*cols + j]);
             // printf("%.4e ", mat->data[i*cols + j]);
         }
@@ -139,17 +140,47 @@ void set_value(Matrix* mat, const unsigned int row, const unsigned int col, doub
     mat->data[row*mat->cols + col] = value;
 }
 
-bool add_matrices_r(const Matrix* a, const Matrix* b){
+int add_matrices_r(const Matrix* a, const Matrix* b){
     if (a->rows != b->rows || a->cols != b->cols) {
         fprintf(stderr, "Error: Matrices dimensions do not match for addition.\n");
-        return false;
+        return 0;
     }
     int rows = a->rows;
     int cols = a->cols;
     for (int i=0;i < rows*cols; i++){
         a->data[i] = a->data[i] + b->data[i];
     }
-    return true;
+    return 1;
+}
+
+int add_matrices_with_multiplier_r(const Matrix* a, const Matrix* b, f64 c){
+    if (a->rows != b->rows || a->cols != b->cols) {
+        fprintf(stderr, "Error: Matrices dimensions do not match for addition.\n");
+        return 0;
+    }
+    int rows = a->rows;
+    int cols = a->cols;
+    for (int i=0;i < rows*cols; i++){
+        a->data[i] = a->data[i] + b->data[i] * c;
+    }
+    return 1;
+}
+
+int add_matrices_inplace(const Matrix* a, const Matrix* b, Matrix* r){
+    if (a->rows != b->rows || a->cols != b->cols) {
+        fprintf(stderr, "Error: Matrices dimensions do not match for addition.\n");
+        return 0;
+    }
+    if (a->rows != r->rows || a->cols != r->cols) {
+        fprintf(stderr, "Error: Matrices dimensions do not match for addition.\n");
+        return 0;
+    }
+    int rows = a->rows;
+    int cols = a->cols;
+    for (int i=0;i < rows*cols; i++){
+        r->data[i] = a->data[i] + b->data[i];
+    }
+    return 1;
 }
 
 Matrix* add_matrices(const Matrix* a, const Matrix* b){

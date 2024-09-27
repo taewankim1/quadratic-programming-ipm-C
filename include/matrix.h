@@ -57,7 +57,9 @@ bool check_equality(Matrix* m1, Matrix* m2, double tolerance);
 
 void print_matrix(const Matrix* mat);
 
-bool add_matrices_r(const Matrix* a, const Matrix* b);
+int add_matrices_r(const Matrix* a, const Matrix* b);
+int add_matrices_with_multiplier_r(const Matrix* a, const Matrix* b, f64 c);
+int add_matrices_inplace(const Matrix* a, const Matrix* b, Matrix* r);
 Matrix* add_matrices(const Matrix* a, const Matrix* b);
 bool subtract_matrices_r(const Matrix* a, const Matrix* b);
 Matrix* subtract_matrices(const Matrix* a, const Matrix* b);

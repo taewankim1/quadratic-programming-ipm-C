@@ -72,4 +72,4 @@ f64 linesearch(Matrix* x, Matrix* dx);
 void centering_params(IPM* ipm, f64* p_sig, f64* p_mu);
 
 
-SOLUTION* solve_ipm(IPM* ipm, bool verbose); // NO MALLOC
+int solve_ipm(IPM* ipm, bool verbose); // NO MALLOC
