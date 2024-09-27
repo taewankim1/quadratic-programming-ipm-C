@@ -27,3 +27,4 @@ Converged?: true
 ## Reference
  - CVXGEN: [Link to paper](https://web.stanford.edu/~boyd/papers/pdf/code_gen_impl.pdf)
  - Govind's QP solver with Eigen library: [Github Repository](https://github.com/govindchari/QPSolver)
+ - Matrix library in C: [Link](https://www.andreinc.net/2021/01/20/writing-your-own-linear-algebra-matrix-library-in-c)
