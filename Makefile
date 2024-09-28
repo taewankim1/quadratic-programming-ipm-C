@@ -1,5 +1,5 @@
 CC = gcc
-CFLAGS = -Iinclude -Wall -Wextra -fPIC -O2
+CFLAGS = -Iinclude -Wall -Wextra -Werror -fPIC -O2
 
 SRC_DIR = src
 SRC = $(wildcard $(SRC_DIR)/*.c)
@@ -18,7 +18,7 @@ TARGET = main
 # LIB = libQPIPM.so
 LIB_DIR = .
 # LIBS = -lmatrix
-LIBS = 
+LIBS = -lm
 
 all: $(TARGET) $(TEST_TARGETS)
 
